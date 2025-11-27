@@ -5,7 +5,7 @@ export class CatalogoConsulta {
   private consultas: Map<string, Consulta> = new Map()
 
   private constructor() {
-    console.log("📘 CatalogoConsulta inicializado")
+    console.log("CatalogoConsulta inicializado")
   }
 
   public static getInstance(): CatalogoConsulta {

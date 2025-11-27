@@ -128,9 +128,9 @@ export class VisualizaConsultasController {
     }
 
     // Atualiza status da consulta
-    catalogoConsulta.atualizarStatus(codConsulta, "cancelada")
-
-    return true
+    const sucesso = marcaConsultaController.cancelarConsulta(codConsulta)
+    
+    return sucesso
   }
 
   /**
@@ -148,6 +148,8 @@ export class VisualizaConsultasController {
     catalogoConsulta.atualizarStatus(codConsulta, "confirmada")
     return true
   }
+
+  
 }
 
 export const visualizaConsultasController = VisualizaConsultasController.getInstance()

@@ -27,14 +27,14 @@ class CatalogoHorario {
         Dia: "Segunda-feira",
         HoraIni: "08:00",
         HoraFim: "12:00",
-        CodMedico: "M001",
+        idMedico: "M001",
       },
       {
         CodHorario: "H002",
         Dia: "Segunda-feira",
         HoraIni: "14:00",
         HoraFim: "18:00",
-        CodMedico: "M001",
+        idMedico: "M001",
       },
     ]
 
@@ -46,7 +46,7 @@ class CatalogoHorario {
   // Information Expert: busca horários por médico
   public buscarHorariosPorMedico(codMedico: string): Horario[] {
     return Array.from(this.horarios.values()).filter(
-      (horario) => horario.CodMedico === codMedico
+      (horario) => horario.idMedico === codMedico
     )
   }
 

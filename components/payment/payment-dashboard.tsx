@@ -4,79 +4,81 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input" // <--- NOVO
+import { Label } from "@/components/ui/label" // <--- NOVO
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
-import { DollarSign, CreditCard, TrendingUp, Download, Copy, ArrowRight } from "lucide-react"
-import type { Payment } from "@/lib/types"
+import { DollarSign, CreditCard, TrendingUp, Download, Copy, Lock } from "lucide-react"
+import { useAuth } from "@/hooks/use-auth"
+import { marcaConsultaController } from "@/lib/controllers/marca-consulta-controller"
+
+interface DashboardPayment {
+  id: string
+  amount: number
+  status: "paid" | "pending" | "failed" | "cancelled"
+  method: string
+  paidAt: string | null
+  codConsulta?: string
+}
 
 const DEFAULT_AMOUNT = 250.0
-const PIX_COPY_PASTE_STRING =
-  "00020126360014BR.GOV.BCB.PIX0114+558199999999925204000053039865802BR5907Company6009City7008City99945802BR"
-
-const QR_CODE_URL = `https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${encodeURIComponent(
-  PIX_COPY_PASTE_STRING
-)}`
+const PIX_COPY_PASTE_STRING = "00020126360014BR.GOV.BCB.PIX0114+558199999999925204000053039865802BR5907Company6009City7008City99945802BR"
+const QR_CODE_URL = `https://api.qrserver.com/v1/create-qr-code/?size=192x192&data=${encodeURIComponent(PIX_COPY_PASTE_STRING)}`
 
 export function PaymentDashboard() {
-  const [payments, setPayments] = useState<Payment[]>([])
+  const { user } = useAuth()
+  
+  const [payments, setPayments] = useState<DashboardPayment[]>([])
   const [loading, setLoading] = useState(true)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState("pix")
-  
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
+  const [selectedPayment, setSelectedPayment] = useState<DashboardPayment | null>(null)
+
+  // --- NOVO: Estado para os dados do cartão ---
+  const [cardData, setCardData] = useState({
+    number: "",
+    name: "",
+    expiry: "",
+    cvv: ""
+  })
 
   useEffect(() => {
-    loadPayments()
-  }, [])
+    if (user?.id) {
+      loadPayments()
+    }
+  }, [user])
 
   const loadPayments = async () => {
     setLoading(true)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      if (!user?.id) return
 
-      const staticPayments: Payment[] = [
-        {
-          id: "ex-003",
-          amount: 75.0,
-          status: "paid",
-          method: "Cartão de Crédito",
-          paidAt: new Date("2025-11-09T09:15:00Z").toISOString(),
-        },
-        {
-          id: "ex-001",
-          amount: 250.0,
-          status: "paid",
-          method: "PIX",
-          paidAt: new Date("2025-11-10T14:30:00Z").toISOString(),
-        },
-        {
-          id: "ex-002",
-          amount: 120.5,
-          status: "pending",
-          method: "Boleto",
-          paidAt: null,
-        },
-        {
-          id: "ex-005",
-          amount: 15.0,
-          status: "pending",
-          method: "PIX",
-          paidAt: null,
-        },
-        {
-          id: "ex-004",
-          amount: 300.0,
-          status: "failed",
-          method: "Cartão de Crédito",
-          paidAt: null,
-        },
-      ]
-      setPayments(staticPayments)
+      const pagamentosReais = marcaConsultaController.getPagamentosPorPaciente(user.id)
+      
+      const mappedPayments: DashboardPayment[] = pagamentosReais.map((p) => {
+        const isPaid = p.Status === "Pago" || (p.DataPagam && p.DataPagam.length > 0 && p.Status !== "Pendente")
+        
+        return {
+          id: p.CodPagamento,
+          amount: p.Valor,
+          status: isPaid ? "paid" : "pending",
+          method: p.TipoPagam || "Pendente",
+          paidAt: isPaid ? `${p.DataPagam} ${p.HoraPagam || ""}` : null,
+          codConsulta: p.CodConsulta
+        }
+      })
+
+      mappedPayments.sort((a, b) => {
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (a.status !== 'pending' && b.status === 'pending') return 1;
+        return 0;
+      })
+
+      setPayments(mappedPayments)
     } catch (error) {
       console.error("Error loading payments:", error)
     } finally {
@@ -84,35 +86,58 @@ export function PaymentDashboard() {
     }
   }
 
-  const handleOpenPayModal = (payment?: Payment) => {
+  const handleOpenPayModal = (payment?: DashboardPayment) => {
     if (payment) {
       setSelectedPayment(payment)
     } else {
       setSelectedPayment(null) 
     }
+    // Reseta o form do cartão ao abrir
+    setCardData({ number: "", name: "", expiry: "", cvv: "" })
     setPaymentMethod("pix") 
     setIsPaymentModalOpen(true)
   }
 
+  // --- NOVO: Formatadores de input ---
+  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, "")
+    value = value.replace(/(\d{4})/g, "$1 ").trim()
+    setCardData({ ...cardData, number: value.substring(0, 19) })
+  }
+
+  const handleExpiryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, "")
+    if (value.length >= 2) {
+      value = value.substring(0, 2) + "/" + value.substring(2, 4)
+    }
+    setCardData({ ...cardData, expiry: value.substring(0, 5) })
+  }
+
   const handlePaymentConfirmation = () => {
-    if (selectedPayment) {
-      setPayments((prevPayments) =>
-        prevPayments.map((p) =>
-          p.id === selectedPayment.id
-            ? {
-                ...p,
-                status: "paid",
-                paidAt: new Date().toISOString(),
-                method: paymentMethod === "pix" ? "PIX" : "Cartão de Crédito",
-              }
-            : p
-        )
-      )
-    } else {
-      loadPayments()
+    // --- NOVO: Validação simples do cartão ---
+    if (paymentMethod === "card") {
+      if (cardData.number.length < 16 || !cardData.name || cardData.expiry.length < 5 || cardData.cvv.length < 3) {
+        alert("Por favor, preencha todos os dados do cartão corretamente.")
+        return
+      }
     }
 
-    alert("Pagamento confirmado com sucesso!")
+    if (selectedPayment) {
+      const sucesso = marcaConsultaController.confirmarPagamento(
+        selectedPayment.id, 
+        paymentMethod as "credito" | "pix"
+      )
+
+      if (sucesso) {
+        loadPayments()
+        alert("Pagamento confirmado com sucesso!")
+      } else {
+        alert("Erro ao processar pagamento.")
+      }
+    } else {
+        alert("Pagamento avulso registrado (apenas visual).")
+    }
+
     setIsPaymentModalOpen(false)
     setSelectedPayment(null)
   }
@@ -130,10 +155,9 @@ export function PaymentDashboard() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-3">
-        {/* Cards de Métricas (mantidos iguais) */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Pago</CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
@@ -144,14 +168,14 @@ export function PaymentDashboard() {
               }).format(totalRevenue)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {payments.filter((p) => p.status === "paid").length} pagamentos recebidos
+              {payments.filter((p) => p.status === "paid").length} consultas pagas
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pagamentos Pendentes</CardTitle>
+            <CardTitle className="text-sm font-medium">Aguardando Pagamento</CardTitle>
             <CreditCard className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
@@ -162,14 +186,14 @@ export function PaymentDashboard() {
               }).format(pendingAmount)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {payments.filter((p) => p.status === "pending").length} aguardando pagamento
+              {payments.filter((p) => p.status === "pending").length} pendências
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Taxa de Conversão</CardTitle>
+            <CardTitle className="text-sm font-medium">Status Geral</CardTitle>
             <TrendingUp className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
@@ -181,17 +205,15 @@ export function PaymentDashboard() {
                 : 0}
               %
             </div>
-            <p className="text-xs text-muted-foreground">Pagamentos concluídos</p>
+            <p className="text-xs text-muted-foreground">Taxa de quitação</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* --- BOTÃO GENÉRICO (TOPO) --- */}
       <div className="flex justify-end">
-        <Button onClick={() => handleOpenPayModal()}>Realizar Pagamento (Novo)</Button>
+        <Button onClick={() => handleOpenPayModal()}>Realizar Pagamento Avulso</Button>
       </div>
 
-      {/* --- MODAL DE PAGAMENTO COMPARTILHADO --- */}
       <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -205,6 +227,10 @@ export function PaymentDashboard() {
                 currency: "BRL",
               }).format(modalAmount)}
             </p>
+             
+            {selectedPayment?.codConsulta && (
+                <p className="text-xs text-center text-muted-foreground">Ref. Consulta: {selectedPayment.codConsulta}</p>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <Button
@@ -252,13 +278,64 @@ export function PaymentDashboard() {
               </div>
             )}
 
+            {/* --- NOVO: Formulário de Cartão de Crédito --- */}
             {paymentMethod === "card" && (
-              <div className="space-y-4 rounded-lg border p-4">
-                <p className="text-center text-muted-foreground">
-                  Formulário de Cartão (Placeholder)
-                </p>
+              <div className="space-y-4 rounded-lg border p-4 bg-card">
+                <div className="space-y-2">
+                    <Label htmlFor="cardNumber">Número do Cartão</Label>
+                    <div className="relative">
+                        <Input 
+                            id="cardNumber" 
+                            placeholder="0000 0000 0000 0000" 
+                            value={cardData.number}
+                            onChange={handleCardNumberChange}
+                            maxLength={19}
+                            className="pl-9"
+                        />
+                        <CreditCard className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="cardName">Nome no Cartão</Label>
+                    <Input 
+                        id="cardName" 
+                        placeholder="COMO NO CARTÃO" 
+                        value={cardData.name}
+                        onChange={(e) => setCardData({...cardData, name: e.target.value.toUpperCase()})}
+                    />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="expiry">Validade</Label>
+                        <Input 
+                            id="expiry" 
+                            placeholder="MM/AA" 
+                            value={cardData.expiry}
+                            onChange={handleExpiryChange}
+                            maxLength={5}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="cvv">CVV</Label>
+                        <div className="relative">
+                            <Input 
+                                id="cvv" 
+                                placeholder="123" 
+                                type="password"
+                                maxLength={4}
+                                value={cardData.cvv}
+                                onChange={(e) => setCardData({...cardData, cvv: e.target.value.replace(/\D/g, "")})}
+                                className="pl-9"
+                            />
+                            <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        </div>
+                    </div>
+                </div>
+
                 <Button className="w-full" variant="default" onClick={handlePaymentConfirmation}>
-                  Pagar com Cartão
+                  Pagar {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(modalAmount)}
                 </Button>
               </div>
             )}
@@ -266,17 +343,16 @@ export function PaymentDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* --- HISTÓRICO DE PAGAMENTOS --- */}
       <Card>
         <CardHeader>
-          <CardTitle>Histórico de Pagamentos</CardTitle>
-          <CardDescription>Visualize todos os pagamentos realizados</CardDescription>
+          <CardTitle>Minhas Consultas e Pagamentos</CardTitle>
+          <CardDescription>Visualize o status financeiro de suas consultas</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <p className="text-center text-muted-foreground py-8">Carregando...</p>
           ) : payments.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">Nenhum pagamento registrado</p>
+            <p className="text-center text-muted-foreground py-8">Nenhuma consulta ou pagamento registrado</p>
           ) : (
             <div className="space-y-3">
               {payments.map((payment) => (
@@ -309,23 +385,21 @@ export function PaymentDashboard() {
                       </Badge>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {payment.method && `Método: ${payment.method}`}
+                      Método: {payment.method} 
                       {payment.paidAt &&
-                        ` • ${new Date(payment.paidAt).toLocaleDateString("pt-BR")}`}
+                         ` • ${payment.paidAt}`}
+                      {payment.codConsulta && ` • Ref: ${payment.codConsulta}`}
                     </div>
                   </div>
                   
-                  {/* --- AÇÕES LADO DIREITO --- */}
                   <div className="flex gap-2">
-                    {/* Botão Nota Fiscal se PAGO */}
                     {payment.status === "paid" && (
                       <Button variant="outline" size="sm">
                         <Download className="h-4 w-4 mr-1" />
-                        Nota Fiscal
+                        NF
                       </Button>
                     )}
 
-                    {/* Botão Pagar se PENDENTE */}
                     {payment.status === "pending" && (
                       <Button 
                         variant="default" 

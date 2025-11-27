@@ -71,6 +71,7 @@ export interface Pagamento {
   HoraPagam: string
   TipoPagam: "credito" | "debito" | "pix" | "dinheiro"
   CodConsulta?: string // Foreign key para Consulta
+  Status?: "Pago" | "Pendente" | "Cancelado";
 }
 
 // Classe: Avaliação
